@@ -28,18 +28,18 @@ def casse_brique_bot():
     
     CONFIG_FILE = "config.json"
     
-    # Vérification si une config existe déjà
-    config_exists = os.path.exists(CONFIG_FILE) and os.path.exists("ball.png")
-    reconfig = True # Par défaut, on configure
-    
-    if config_exists:
-        print("\nUne configuration (Zone + Balle) a été trouvée.")
-        choix = input("Voulez-vous REFAIRE la configuration ? (o/N) : ").strip().lower()
-        if choix != 'o':
-            reconfig = False
+    # Vérification fichiers
+    config_exists = os.path.exists(CONFIG_FILE)
+    ball_exists = os.path.exists("ball.png")
 
-    if reconfig:
-        # --- 1. CONFIGURATION ZONE ---
+    # --- 1. CONFIGURATION ZONE ---
+    reconfig_zone = True
+    if config_exists:
+        print("\nUne configuration de ZONE a été trouvée.")
+        if input("Voulez-vous reconfigurer la ZONE ? (o/N) : ").strip().lower() != 'o':
+            reconfig_zone = False
+
+    if reconfig_zone:
         print("\n--- 1/2 : CONFIGURATION DE LA ZONE DE JEU ---")
         print("Préparez le jeu. Capture dans 10 secondes...")
         for i in range(10, 0, -1):
@@ -60,12 +60,24 @@ def casse_brique_bot():
             print("Sélection invalide. Arrêt.")
             return
             
-        # Sauvegarde JSON
         with open(CONFIG_FILE, "w") as f:
             json.dump({"x": int(x), "y": int(y), "w": int(w), "h": int(h)}, f)
         print("Zone sauvegardée.")
+    else:
+        print("Chargement de la configuration de zone...")
+        with open(CONFIG_FILE, "r") as f:
+            data = json.load(f)
+            x, y, w, h = data["x"], data["y"], data["w"], data["h"]
+        print(f"Zone chargée : {x},{y},{w},{h}")
 
-        # --- 2. CONFIGURATION BALLE ---
+    # --- 2. CONFIGURATION BALLE ---
+    reconfig_ball = True
+    if ball_exists:
+        print("\nUne configuration de BALLE a été trouvée.")
+        if input("Voulez-vous reconfigurer la BALLE ? (o/N) : ").strip().lower() != 'o':
+            reconfig_ball = False
+
+    if reconfig_ball:
         print("\n--- 2/2 : CONFIGURATION DE LA BALLE ---")
         print("Préparez la balle visible (pause). Capture dans 5 secondes...")
         for i in range(5, 0, -1):
@@ -87,14 +99,6 @@ def casse_brique_bot():
         else:
             print("Sélection balle invalide.")
             return
-            
-    else:
-        # Chargement de la config existante
-        print("Chargement de la configuration...")
-        with open(CONFIG_FILE, "r") as f:
-            data = json.load(f)
-            x, y, w, h = data["x"], data["y"], data["w"], data["h"]
-        print(f"Zone chargée : {x},{y},{w},{h}")
 
     # --- Configuration MSS pour la capture ultra-rapide ---
     monitor = {"top": int(y), "left": int(x), "width": int(w), "height": int(h)}
@@ -125,9 +129,9 @@ def casse_brique_bot():
     # Préparation du template en Gris pour accélérer le matching (3x moins de données)
     ball_template_gray = cv2.cvtColor(ball_template, cv2.COLOR_BGR2GRAY)
 
-    print("\n--> BOT PRÊT. Mode PRO (Prediction + Anti-Teleport).")
+    print("\n--> BOT PRÊT. Mode PRO (Prediction + Anti-Teleport). En PAUSE (Appuyez sur P).")
     
-    paused = False 
+    paused = True 
     debug_mode = False
     
     # Variables pour la physique
