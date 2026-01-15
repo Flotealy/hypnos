@@ -1,0 +1,6 @@
+requests
+opencv-python
+numpy
+pyautogui
+mss
+python-dotenv
