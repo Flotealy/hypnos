@@ -4,7 +4,7 @@ Ce dépôt contient des scripts d'automatisation (bots) pour les jeux de la plat
 
 ## Installation
 
-1. Assurez-vous d'avoir **Python 3.x** installé.
+1. Assurez-vous d'avoir **Python 3.10** installé (recommandé pour la compatibilité avec `matchTemplate` et `mss` du bot Casse-Brique).
 2. Installez les dépendances requises via `pip` :
 
 ```bash
@@ -48,3 +48,17 @@ Ce script utilise la vision par ordinateur pour jouer au Casse-Brique en temps r
   - `mss` : Pour la capture d'écran haute performance (bien plus rapide que les méthodes natives).
   - `numpy` : Pour les calculs matriciels sur les images.
   - `pyautogui` : Pour les interactions système (initialisation).
+
+#### Initialisation et Utilisation
+
+Au premier lancement, le script vous guidera pour configurer la vision du bot. Cette étape est cruciale mais très assistée :
+
+1.  **Zone de Jeu** : Le bot va prendre une capture d'écran. Sélectionnez avec la souris la zone rectangulaire complète du jeu (murs inclus).
+2.  **Balle** : Mettez le jeu en pause quand la balle est visible. Le bot prendra une nouvelle capture. Entourez **strictement** la balle (le carré doit être le plus serré possible autour d'elle).
+
+Une fois configuré, un fichier `config.json` et une image `ball.png` sont créés. Le bot se lancera ensuite automatiquement avec ces paramètres lors des prochaines sessions.
+
+**Contrôles en jeu :**
+- `P` : Mettre le bot en Pause / Reprendre.
+- `D` : Activer le mode Debug (affiche ce que le bot voit, *peut ralentir l'exécution*).
+- `Q` : Quitter proprement.
