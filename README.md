@@ -62,3 +62,18 @@ Une fois configuré, un fichier `config.json` et une image `ball.png` sont cré�
 - `P` : Mettre le bot en Pause / Reprendre.
 - `D` : Activer le mode Debug (affiche ce que le bot voit, *peut ralentir l'exécution*).
 - `Q` : Quitter proprement.
+
+### 3. Bots Trivia (Sporcle)
+
+Ces scripts automatisent le jeu de trivia (type Sporcle) pour différents thèmes en envoyant rapidement les réponses correctes.
+
+- **Fichiers** :
+  - `trivia_bde.py` : Réponses pour le thème "Mandats" (BDE).
+  - `trivia_listeux.py` : Réponses pour le thème "Listeux".
+  - `trivia_clubs.py` : Réponses pour le thème "Clubs".
+
+- **Fonctionnement** :
+  - Utilise les tokens configurés dans `.env` pour l'authentification.
+  - Lance automatiquement une nouvelle partie.
+  - Envoie les réponses en utilisant le multithreading (`ThreadPoolExecutor`) pour une vitesse optimale.
+  - Gère intelligemment les erreurs serveur (retry automatique sur erreur 500) et le rate-limiting pour assurer que tous les mots sont validés.
