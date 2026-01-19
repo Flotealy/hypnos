@@ -1,0 +1,9 @@
+{
+    "score": 4000,
+    "completion_time": 27,
+    "data": {
+        "snake_size": 43,
+        "won": false,
+        "time_remaining": 93
+    }
+}

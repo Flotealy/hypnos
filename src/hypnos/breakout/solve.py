@@ -6,8 +6,15 @@ import ctypes
 import mss
 import json
 import os
+from hypnos.lib import setup_logger
 
-# --- Configuration ---
+logger = setup_logger("breakout_solver")
+
+from importlib import resources
+DATA_PATH = resources.files("hypnos.breakout.data")
+CONFIG_FILE = DATA_PATH / "config.json"
+BALL_FILE = DATA_PATH / "ball.png"
+
 # Touche pour quitter : 'q' (0x51)
 VK_Q = 0x51
 # Touche pour pause/reprise : 'p' (0x50)
@@ -19,29 +26,29 @@ def is_key_pressed(key_code):
     """Vérifie si une touche est pressée via l'API Windows (sans focus nécessaire)."""
     return ctypes.windll.user32.GetAsyncKeyState(key_code) & 0x8000
 
-def casse_brique_bot():
-    print("=== Casse-Brique Bot (v3 - MSS Speed) ===")
-    print("Contrôles :")
-    print("  [P] : PAUSE / REPRENDRE")
-    print("  [D] : Activer/Désactiver le mode VISION (Ralentit le bot !)")
-    print("  [Q] : QUITTER")
-    
-    CONFIG_FILE = "config.json"
+def main() -> None:
+    logger.info("=== Casse-Brique Bot (v3 - MSS Speed) ===")
+    logger.info("Contrôles :")
+    logger.info("  [P] : PAUSE / REPRENDRE")
+    logger.info("  [D] : Activer/Désactiver le mode VISION (Ralentit le bot !)")
+    logger.info("  [Q] : QUITTER")
     
     # Vérification fichiers
-    config_exists = os.path.exists(CONFIG_FILE)
-    ball_exists = os.path.exists("ball.png")
+    config_exists = CONFIG_FILE.exists()
+    ball_exists = BALL_FILE.exists()
 
     # --- 1. CONFIGURATION ZONE ---
     reconfig_zone = True
     if config_exists:
-        print("\nUne configuration de ZONE a été trouvée.")
-        if input("Voulez-vous reconfigurer la ZONE ? (o/N) : ").strip().lower() != 'o':
+        logger.info("\nUne configuration de ZONE a été trouvée.")
+        if input("Voulez-vous reconfigurer la ZONE ? (o/N) : ").strip().lower() == 'o':
+            reconfig_zone = True
+        else:
             reconfig_zone = False
 
     if reconfig_zone:
-        print("\n--- 1/2 : CONFIGURATION DE LA ZONE DE JEU ---")
-        print("Préparez le jeu. Capture dans 10 secondes...")
+        logger.info("\n--- 1/2 : CONFIGURATION DE LA ZONE DE JEU ---")
+        logger.info("Préparez le jeu. Capture dans 10 secondes...")
         for i in range(10, 0, -1):
             print(f"{i}...", end=" ", flush=True)
             time.sleep(1)
@@ -57,29 +64,32 @@ def casse_brique_bot():
         
         x, y, w, h = roi
         if w == 0 or h == 0:
-            print("Sélection invalide. Arrêt.")
+            logger.error("Sélection invalide. Arrêt.")
             return
             
         with open(CONFIG_FILE, "w") as f:
             json.dump({"x": int(x), "y": int(y), "w": int(w), "h": int(h)}, f)
-        print("Zone sauvegardée.")
+        logger.info("Zone sauvegardée.")
     else:
-        print("Chargement de la configuration de zone...")
+    else:
+        logger.info("Chargement de la configuration de zone...")
         with open(CONFIG_FILE, "r") as f:
             data = json.load(f)
             x, y, w, h = data["x"], data["y"], data["w"], data["h"]
-        print(f"Zone chargée : {x},{y},{w},{h}")
+        logger.info(f"Zone chargée : {x},{y},{w},{h}")
 
     # --- 2. CONFIGURATION BALLE ---
     reconfig_ball = True
     if ball_exists:
-        print("\nUne configuration de BALLE a été trouvée.")
-        if input("Voulez-vous reconfigurer la BALLE ? (o/N) : ").strip().lower() != 'o':
+        logger.info("\nUne configuration de BALLE a été trouvée.")
+        if input("Voulez-vous reconfigurer la BALLE ? (o/N) : ").strip().lower() == 'o':
+            reconfig_ball = True
+        else:
             reconfig_ball = False
 
     if reconfig_ball:
-        print("\n--- 2/2 : CONFIGURATION DE LA BALLE ---")
-        print("Préparez la balle visible (pause). Capture dans 5 secondes...")
+        logger.info("\n--- 2/2 : CONFIGURATION DE LA BALLE ---")
+        logger.info("Préparez la balle visible (pause). Capture dans 5 secondes...")
         for i in range(5, 0, -1):
             print(f"{i}...", end=" ", flush=True)
             time.sleep(1)
@@ -94,8 +104,8 @@ def casse_brique_bot():
         bx, by, bw, bh = ball_roi
         if bw > 0 and bh > 0:
             ball_img = screen_ball_bgr[by:by+bh, bx:bx+bw]
-            cv2.imwrite("ball.png", ball_img)
-            print("Image de la balle sauvegardée.")
+            cv2.imwrite(str(BALL_FILE), ball_img)
+            logger.info("Image de la balle sauvegardée.")
         else:
             print("Sélection balle invalide.")
             return
@@ -107,17 +117,13 @@ def casse_brique_bot():
     # 3. Chargement du template
     try:
         # On charge en couleur
-        ball_template = cv2.imread("ball.png", cv2.IMREAD_COLOR)
+        ball_template = cv2.imread(str(BALL_FILE), cv2.IMREAD_COLOR)
         if ball_template is None:
-            raise FileNotFoundError("ball.png introuvable ou illisible.")
+            raise FileNotFoundError(f"{BALL_FILE} introuvable ou illisible.")
     except Exception as e:
-        print(f"Erreur : {e}")
+        logger.error(f"Erreur : {e}")
         return
 
-    # --- Configuration MSS pour la capture ultra-rapide ---
-    monitor = {"top": int(y), "left": int(x), "width": int(w), "height": int(h)}
-    sct = mss.mss()
-    
     # Dimensions du template
     ball_h, ball_w = ball_template.shape[:2]
     
@@ -129,7 +135,7 @@ def casse_brique_bot():
     # Préparation du template en Gris pour accélérer le matching (3x moins de données)
     ball_template_gray = cv2.cvtColor(ball_template, cv2.COLOR_BGR2GRAY)
 
-    print("\n--> BOT PRÊT. Mode PRO (Prediction + Anti-Teleport). En PAUSE (Appuyez sur P).")
+    logger.info("\n--> BOT PRÊT. Mode PRO (Prediction + Anti-Teleport). En PAUSE (Appuyez sur P).")
     
     paused = True 
     debug_mode = False
@@ -142,17 +148,17 @@ def casse_brique_bot():
     while True:
         # --- Gestion des touches ---
         if is_key_pressed(VK_Q):
-            print("\nArrêt demandé.")
+            logger.info("\nArrêt demandé.")
             break
         
         if is_key_pressed(VK_P):
             paused = not paused
-            print(f"\n[MODE] : {'PAUSE' if paused else 'ACTIF'}")
+            logger.info(f"\n[MODE] : {'PAUSE' if paused else 'ACTIF'}")
             time.sleep(0.5)
 
         if is_key_pressed(VK_D):
             debug_mode = not debug_mode
-            print(f"\n[DEBUG] : {'ACTIVÉ (Lent)' if debug_mode else 'DÉSACTIVÉ (Rapide)'}")
+            logger.info(f"\n[DEBUG] : {'ACTIVÉ (Lent)' if debug_mode else 'DÉSACTIVÉ (Rapide)'}")
             if not debug_mode:
                 cv2.destroyAllWindows()
             time.sleep(0.5)
@@ -220,7 +226,7 @@ def casse_brique_bot():
                 pass 
                 
     cv2.destroyAllWindows()
-    print("\nFin du programme.")
+    logger.info("\nFin du programme.")
 
 if __name__ == "__main__":
-    casse_brique_bot()
+    main()
