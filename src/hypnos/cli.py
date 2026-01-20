@@ -39,6 +39,10 @@ def handle_trivia(args):
         for theme in solve.THEMES:
             solve.solve_theme(theme)
 
+def handle_2048(args):
+    from hypnos.twothousandfortyeight import solve
+    solve.main()
+
 def main():
     parser = argparse.ArgumentParser(description="Hypnos 2026 Bot Suite")
     subparsers = parser.add_subparsers(dest="game", required=True, help="Game to play/solve")
@@ -62,6 +66,10 @@ def main():
     p_trivia = subparsers.add_parser("trivia", help="Trivia/Sporcle solver")
     p_trivia.add_argument("--theme", "-t", type=str.lower, help="Specific theme to solve (e.g. bde, clubs)")
     p_trivia.set_defaults(func=handle_trivia)
+
+    # 2048
+    p_2048 = subparsers.add_parser("2048", help="2048 Solver")
+    p_2048.set_defaults(func=handle_2048)
 
     # Parse
     if len(sys.argv) == 1:
