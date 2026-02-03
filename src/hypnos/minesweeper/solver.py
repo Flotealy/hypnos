@@ -7,19 +7,77 @@ from dotenv import load_dotenv
 # Charger les variables d'environnement
 load_dotenv()
 
+# --- Configuration ---
+LOGIN_URL = 'https://play.hypnos2026.fr/api/auth/login'
+LOGOUT_URL = 'https://play.hypnos2026.fr/api/auth/logout'
+BASE_URL = 'https://play.hypnos2026.fr'
 API_URL = "https://play.hypnos2026.fr/api/arg/minesweeper"
+
+EMAIL = os.environ.get("EMAIL")
+PASSWORD = os.environ.get("PASSWORD")
+
+if not EMAIL or not PASSWORD:
+    raise ValueError("EMAIL and PASSWORD environment variables must be set.")
+
+def get_fresh_session():
+    """
+    Crée une nouvelle session, récupère le CSRF initial, et se connecte.
+    Retourne la session authentifiée.
+    """
+    session = requests.Session()
+    session.headers.update({
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+        'accept': 'application/json',
+        'origin': 'https://play.hypnos2026.fr',
+        'referer': 'https://play.hypnos2026.fr/login'
+    })
+
+    try:
+        # Etape 1 : Récupérer les cookies initiaux (CSRF)
+        print("--- Récupération CSRF via /api/csrf-token ...")
+        csrf_url = "https://play.hypnos2026.fr/api/csrf-token"
+        r_init = session.get(csrf_url, timeout=10)
+        
+        csrf_token = r_init.json().get('csrf_token') or r_init.cookies.get('csrf_token')
+            
+        if not csrf_token:
+             print("--- Fallback: Récupération CSRF via l'accueil...")
+             session.get(BASE_URL, timeout=10)
+             csrf_token = session.cookies.get('csrf_token')
+
+        if csrf_token:
+            session.headers.update({'x-csrf-token': csrf_token})
+        else:
+            print("!!! ATTENTION: Impossible de trouver un token CSRF")
+
+        # Etape 2 : Login
+        print(f"--- Tentative de connexion pour {EMAIL}...")
+        payload = {"login": EMAIL, "password": PASSWORD}
+        r_login = session.post(LOGIN_URL, json=payload, timeout=10)
+        
+        if r_login.status_code == 200:
+            print("--- Login réussi !")
+            # Sync CSRF token again after login
+            new_csrf = session.cookies.get('csrf_token')
+            if new_csrf:
+                session.headers.update({'x-csrf-token': new_csrf})
+            return session
+        else:
+            print(f"!!! ECHEC LOGIN (Code: {r_login.status_code})")
+            print(f"    Réponse: {r_login.text}")
+            return None
+
+    except Exception as e:
+        print(f"!!! Erreur lors du login : {e}")
+        return None
 
 class MinesweeperSmartSolver:
     def __init__(self):
-        self.auth_token = os.getenv("AUTH_TOKEN")
-        self.csrf_token = os.getenv("CSRF_TOKEN")
-        
-        if not self.auth_token or not self.csrf_token:
-            print("❌ Erreur : AUTH_TOKEN ou CSRF_TOKEN manquants (.env)")
+        self.session = get_fresh_session()
+        if not self.session:
+            # get_fresh_session already prints the specific error
+            print("FAILED to initialize session. See log above for details.")
             exit(1)
-
-        self.session = requests.Session()
-        self._configure_headers()
 
         # État du jeu
         self.game_id = None
@@ -28,19 +86,11 @@ class MinesweeperSmartSolver:
         self.grid = {}  # (r, c) -> dict
         self.game_over = False
         self.won = False
-        self.mines_remaining_counter = 0
-
-    def _configure_headers(self):
-        self.session.headers.update({
-            'accept': 'application/json',
-            'content-type': 'application/json',
-            'origin': 'https://play.hypnos2026.fr',
-            'referer': 'https://play.hypnos2026.fr/game/minesweeper/',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/143.0.0.0 Safari/537.36',
-            'x-csrf-token': self.csrf_token
-        })
-        self.session.cookies.set('auth_token', self.auth_token)
-        self.session.cookies.set('csrf_token', self.csrf_token)
+        
+        # Stats
+        self.wins = 0
+        self.losses = 0
+        self.games_played = 0
 
     def _api_call(self, endpoint, payload=None):
         """Wrapper générique pour les appels API"""
@@ -53,9 +103,23 @@ class MinesweeperSmartSolver:
             
             if r.status_code == 200:
                 return r.json()
-            print(f"⚠️ Erreur API {endpoint}: {r.status_code} - {r.text}")
+            
+            # Si token expiré, on tente de se reconnecter une fois
+            if r.status_code == 401:
+                # Silencieux pour l'affichage
+                self.session = get_fresh_session()
+                if self.session:
+                    # Retry
+                    if payload:
+                        r = self.session.post(url, json=payload)
+                    else:
+                        r = self.session.post(url)
+                    if r.status_code == 200:
+                        return r.json()
+
+            # print(f"⚠️ Erreur API {endpoint}: {r.status_code} - {r.text}")
         except Exception as e:
-            print(f"⚠️ Exception API {endpoint}: {e}")
+            pass # print(f"⚠️ Exception API {endpoint}: {e}")
         return None
 
     def update_grid(self, data):
@@ -102,13 +166,13 @@ class MinesweeperSmartSolver:
         return cell['value'], flagged, hidden
 
     def action_reveal(self, r, c):
-        print(f"🔍 Reveal ({r}, {c})")
+        # print(f"🔍 Reveal ({r}, {c})")
         data = self._api_call(f"{self.game_id}/reveal", {"row": r, "col": c})
         if data: self.update_grid(data)
         return bool(data)
 
     def action_flag(self, r, c):
-        print(f"🚩 Flag ({r}, {c})")
+        # print(f"🚩 Flag ({r}, {c})")
         data = self._api_call(f"{self.game_id}/flag", {"row": r, "col": c})
         if data: self.update_grid(data)
         return bool(data)
@@ -185,12 +249,12 @@ class MinesweeperSmartSolver:
                     if len(diff) > 0:
                         # Si le nombre de mines dans la différence est 0 -> TOUT SAFE
                         if diff_val == 0:
-                            print(f"💡 Logique Ensemble: ({r1},{c1}) ⊂ ({r2},{c2}) => Diff safe")
+                            # print(f"💡 Logique Ensemble: ({r1},{c1}) ⊂ ({r2},{c2}) => Diff safe")
                             for dr, dc in diff: moves.add(('reveal', dr, dc))
                         
                         # Si le nombre de mines == taille diff -> TOUT MINES
                         elif diff_val == len(diff):
-                            print(f"💡 Logique Ensemble: ({r1},{c1}) ⊂ ({r2},{c2}) => Diff mines")
+                            # print(f"💡 Logique Ensemble: ({r1},{c1}) ⊂ ({r2},{c2}) => Diff mines")
                             for dr, dc in diff: moves.add(('flag', dr, dc))
 
                 # Cas B: Set2 est un sous-ensemble de Set1 (inverse)
@@ -200,10 +264,10 @@ class MinesweeperSmartSolver:
                     
                     if len(diff) > 0:
                         if diff_val == 0:
-                            print(f"💡 Logique Ensemble: ({r2},{c2}) ⊂ ({r1},{c1}) => Diff safe")
+                            # print(f"💡 Logique Ensemble: ({r2},{c2}) ⊂ ({r1},{c1}) => Diff safe")
                             for dr, dc in diff: moves.add(('reveal', dr, dc))
                         elif diff_val == len(diff):
-                            print(f"💡 Logique Ensemble: ({r2},{c2}) ⊂ ({r1},{c1}) => Diff mines")
+                            # print(f"💡 Logique Ensemble: ({r2},{c2}) ⊂ ({r1},{c1}) => Diff mines")
                             for dr, dc in diff: moves.add(('flag', dr, dc))
 
         if moves:
@@ -245,16 +309,28 @@ class MinesweeperSmartSolver:
         
         if valid_corners:
             choice = random.choice(valid_corners)
-            print(f"🎲 Guess (Corner): {choice}")
+            # print(f"🎲 Guess (Corner): {choice}")
         else:
             choice = random.choice(hidden)
-            print(f"🎲 Guess (Random): {choice}")
+            # print(f"🎲 Guess (Random): {choice}")
             
         return self.action_reveal(choice[0], choice[1])
 
+    def print_status(self):
+        """Affiche l'état sur une seule ligne."""
+        status = "En cours..."
+        if self.game_over:
+            status = "VICTOIRE" if self.won else "PERDU"
+        
+        line = f"\r[Wins: {self.wins} | Losses: {self.losses} | Total: {self.games_played}] Game: {self.game_id} | {status}      "
+        print(line, end="", flush=True)
+
     def start(self):
-        print("🚀 Démarrage du solver intelligent...")
+        print("--- Demarrage du solver intelligent (Mode Silence)...")
+        print("Stats affichees en temps reel :")
+        
         while True:
+            self.games_played += 1
             # Nouvelle partie
             data = self._api_call("new-game", {})
             if not data:
@@ -263,25 +339,30 @@ class MinesweeperSmartSolver:
             
             self.grid = {}
             self.update_grid(data)
-            print(f"🎮 Partie {self.game_id} ({self.rows}x{self.cols})")
+            self.print_status()
             
             # Premier coup au centre
             mid_r, mid_c = self.rows // 2, self.cols // 2
             self.action_reveal(mid_r, mid_c)
+            self.print_status()
 
             # Boucle de résolution
             while not self.game_over:
                 if not self.solve_step():
-                    print("🤔 Bloqué. Tentative de guess...")
                     if not self.guess():
                         break # Plus rien à faire
+                self.print_status()
             
             if self.won:
-                print("🏆 VICTOIRE !")
+                self.wins += 1
             else:
-                print("💥 PERDU")
+                self.losses += 1
             
-            time.sleep(2)
+            self.print_status()
+            
+            if os.environ.get("SOLVE_ONCE") == "1":
+                print("\nSOLVE_ONCE set, exiting.")
+                break
 
 if __name__ == "__main__":
     solver = MinesweeperSmartSolver()

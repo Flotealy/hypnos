@@ -1,1 +1,1 @@
-from .snake_solver import *
+from .solve import *

@@ -7,31 +7,81 @@ from dotenv import load_dotenv
 # Load environment variables
 load_dotenv()
 
-AUTH_TOKEN = os.getenv("AUTH_TOKEN")
-CSRF_TOKEN = os.getenv("CSRF_TOKEN")
+# --- Configuration ---
+LOGIN_URL = 'https://play.hypnos2026.fr/api/auth/login'
+LOGOUT_URL = 'https://play.hypnos2026.fr/api/auth/logout'
+BASE_URL = 'https://play.hypnos2026.fr'
+API_URL = "https://play.hypnos2026.fr/api/arg/2048"
 
-BASE_URL = "https://play.hypnos2026.fr/api/arg/2048"
-HEADERS = {
-    'accept': '*/*',
-    'accept-language': 'fr-FR,fr;q=0.9,en-US;q=0.8,en;q=0.7',
-    'content-type': 'application/json',
-    'origin': 'https://play.hypnos2026.fr',
-    'referer': 'https://play.hypnos2026.fr/game/2048/',
-    'priority': 'u=1, i',
-    'sec-ch-ua': '"Google Chrome";v="143", "Chromium";v="143", "Not A(Brand";v="24"',
-    'sec-ch-ua-mobile': '?0',
-    'sec-ch-ua-platform': '"Windows"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36',
-    'x-csrf-token': CSRF_TOKEN
-}
+EMAIL = os.environ.get("EMAIL")
+PASSWORD = os.environ.get("PASSWORD")
 
-COOKIES = {
-    'auth_token': AUTH_TOKEN,
-    'csrf_token': CSRF_TOKEN
-}
+if not EMAIL or not PASSWORD:
+    raise ValueError("EMAIL and PASSWORD environment variables must be set.")
+
+# Global session variable
+session = None
+
+def get_fresh_session():
+    """
+    Crée une nouvelle session, récupère le CSRF initial, et se connecte.
+    Retourne la session authentifiée.
+    """
+    s = requests.Session()
+    s.headers.update({
+        'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/144.0.0.0 Safari/537.36',
+        'accept': 'application/json',
+        'origin': 'https://play.hypnos2026.fr',
+        'referer': 'https://play.hypnos2026.fr/login',
+        'priority': 'u=1, i'
+    })
+
+    try:
+        # Etape 1 : Récupérer les cookies initiaux (CSRF)
+        print("--- Récupération CSRF via /api/csrf-token ...")
+        csrf_url = "https://play.hypnos2026.fr/api/csrf-token"
+        r_init = s.get(csrf_url, timeout=10)
+        
+        csrf_token = None
+        try:
+            data = r_init.json()
+            if 'csrf_token' in data:
+                csrf_token = data['csrf_token']
+        except:
+            pass
+            
+        if not csrf_token and 'csrf_token' in s.cookies:
+            csrf_token = s.cookies['csrf_token']
+            
+        if not csrf_token:
+             print("--- Fallback: Récupération CSRF via l'accueil...")
+             s.get(BASE_URL, timeout=10)
+             if 'csrf_token' in s.cookies:
+                csrf_token = s.cookies['csrf_token']
+
+        if csrf_token:
+            s.headers.update({'x-csrf-token': csrf_token})
+        else:
+            print("!!! ATTENTION: Impossible de trouver un token CSRF")
+
+        # Etape 2 : Login
+        print(f"--- Tentative de connexion pour {EMAIL}...")
+        payload = {"login": EMAIL, "password": PASSWORD}
+        r_login = s.post(LOGIN_URL, json=payload, timeout=10)
+        
+        if r_login.status_code == 200:
+            print("--- Login réussi !")
+            if 'csrf_token' in s.cookies:
+                s.headers.update({'x-csrf-token': s.cookies['csrf_token']})
+            return s
+        else:
+            print(f"!!! ECHEC LOGIN (Code: {r_login.status_code})")
+            print(f"    Réponse: {r_login.text}")
+            return None
+
+    except Exception as e:
+        print(f"!!! Erreur lors du login : {e}")
+        return None
 
 # --- 2048 Game Logic for Simulation ---
 
@@ -226,43 +276,47 @@ def get_best_move(board):
 
 # --- API Interaction ---
 
-def check_active_game():
-    url = f"{BASE_URL}/active-game"
-    print(f"Checking for active game via {url}...")
-    headers = HEADERS.copy()
+def _handle_request(method, url, **kwargs):
+    global session
+    if not session:
+        session = get_fresh_session()
+        if not session: return None
+
     try:
-        response = requests.get(url, headers=headers, cookies=COOKIES, timeout=5)
+        response = session.request(method, url, **kwargs)
+        if response.status_code == 401:
+            print("⚠️ Session expirée, tentative de reconnexion...")
+            session = get_fresh_session()
+            if session:
+                response = session.request(method, url, **kwargs)
+            else:
+                return None
+        
         response.raise_for_status()
         return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error checking active game: {e}")
+    except Exception as e:
+        print(f"Error Request ({url}): {e}")
         return None
+
+def check_active_game():
+    url = f"{API_URL}/active-game"
+    print(f"Checking for active game via {url}...")
+    return _handle_request('GET', url, timeout=5)
 
 def start_game():
-    url = f"{BASE_URL}/new-game"
+    url = f"{API_URL}/new-game"
     print(f"Starting new game via {url}...")
-    headers = HEADERS.copy()
-    headers['content-length'] = '0'
-    try:
-        response = requests.post(url, headers=headers, cookies=COOKIES, timeout=5)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error starting game: {e}")
-        return None
+    return _handle_request('POST', url, timeout=5)
 
 def make_api_move(game_id, direction):
-    url = f"{BASE_URL}/{game_id}/move"
+    url = f"{API_URL}/{game_id}/move"
     data = {"direction": direction}
-    try:
-        response = requests.post(url, headers=HEADERS, cookies=COOKIES, json=data, timeout=5)
-        response.raise_for_status()
-        return response.json()
-    except requests.exceptions.RequestException as e:
-        print(f"Error making move: {e}")
-        return None
+    return _handle_request('POST', url, json=data, timeout=5)
 
-def print_game_board(board_data, score, paused=False, delay=1.0, last_move=None):
+def print_game_board(board_data, score, paused=False, delay=0.0, last_move=None):
+    if os.environ.get("EMAIL"):
+        print(f"Score: {score}")
+        return
     os.system('cls' if os.name == 'nt' else 'clear')
     sidebar = [
         "Controls:",
@@ -289,32 +343,8 @@ def print_game_board(board_data, score, paused=False, delay=1.0, last_move=None)
         s = sidebar[i] if i < len(sidebar) else ""
         print(f"{l:<25} {s}")
 
-def main():
-    if not AUTH_TOKEN or not CSRF_TOKEN:
-        print("Error: Tokens not found in .env file.")
-        return
-
+def run_single_game(session, game_data):
     import msvcrt # Windows only
-
-    game_data = None
-    
-    # Check if active game exists
-    active_check = check_active_game()
-    if active_check and active_check.get("has_active_game"):
-        print(f"Found active game! ID: {active_check['game']['game_id']}, Score: {active_check['game']['score']}")
-        print("Do you want to (C)ontinue this game or start a (N)ew one?")
-        while True:
-            if msvcrt.kbhit():
-                ans = msvcrt.getch().decode('utf-8').lower()
-                if ans == 'c':
-                    game_data = active_check['game']
-                    break
-                elif ans == 'n':
-                    game_data = start_game()
-                    break
-            time.sleep(0.05)
-    else:
-        game_data = start_game()
 
     if not game_data: return
 
@@ -322,7 +352,8 @@ def main():
     board = game_data['board']
     score = game_data['score']
 
-    delay = 1.0
+    # Speed settings
+    delay = 0.0
     paused = False
     last_ai_move_time = 0
     last_move = None
@@ -343,7 +374,7 @@ def main():
             else:
                 try:
                     char = key.decode('utf-8').lower()
-                    if char == 'q': break
+                    if char == 'q': return False # Stopped by user
                     elif char == 'p': 
                         paused = not paused
                         print_game_board(board, score, paused, delay, last_move)
@@ -365,7 +396,10 @@ def main():
             move_to_execute = get_best_move(board)
             if not move_to_execute:
                 print("AI found no valid moves. Game might be over.")
+                break # Game corrupted or bugged
             last_ai_move_time = time.time()
+        else:
+            move_to_execute = None
 
         if move_to_execute:
             last_move = move_to_execute
@@ -377,11 +411,47 @@ def main():
                 if new_state.get('game_over'):
                     print("\nGAME OVER!")
                     print("YOU WON!" if new_state.get('won') else f"Final Score: {score}")
-                    break
+                    time.sleep(2) # Little pause before next game
+                    return True # Completed game, continue loop
             else:
                 print("Sync error, retrying...")
 
         time.sleep(0.001)
+    return True
+
+def main():
+    import msvcrt # Windows only
+
+    global session
+    session = get_fresh_session()
+    if not session:
+        return
+
+    # Check for existing game first
+    active_check = check_active_game()
+    if active_check and active_check.get("has_active_game"):
+        print(f"Found active game! ID: {active_check['game']['game_id']}, Score: {active_check['game']['score']}")
+        print("Resuming...")
+        time.sleep(1)
+        if not run_single_game(session, active_check['game']):
+            return # User quit
+
+    while True:
+        print("\nStarting new game...")
+        game_data = start_game()
+        if not game_data:
+            print("Failed to start game. Retrying in 5s...")
+            time.sleep(5)
+            continue
+            
+        if not run_single_game(session, game_data):
+            break # User quit
+            
+        if os.environ.get("SOLVE_ONCE") == "1":
+            print("SOLVE_ONCE set, exiting.")
+            break
+
+    print("Exiting...")
 
 if __name__ == "__main__":
     main()

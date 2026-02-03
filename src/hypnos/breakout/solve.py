@@ -6,12 +6,30 @@ import ctypes
 import mss
 import json
 import os
-from hypnos.lib import setup_logger
+from pathlib import Path
+import logging
 
-logger = setup_logger("breakout_solver")
+# Handle standalone execution for logger
+try:
+    from hypnos.lib import setup_logger
+    logger = setup_logger("breakout_solver")
+except ImportError:
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger("breakout_solver")
 
-from importlib import resources
-DATA_PATH = resources.files("hypnos.breakout.data")
+# Handle standalone execution for resources
+try:
+    from importlib import resources
+    # Try to access as package resource
+    DATA_PATH = resources.files("hypnos.breakout.data")
+except (ImportError, ModuleNotFoundError, TypeError):
+    # Fallback for standalone run
+    DATA_PATH = Path(__file__).parent / "data"
+
+if not DATA_PATH.exists():
+    # If data path doesn't exist relative to script, try creating it or warn
+    DATA_PATH.mkdir(parents=True, exist_ok=True)
+
 CONFIG_FILE = DATA_PATH / "config.json"
 BALL_FILE = DATA_PATH / "ball.png"
 
@@ -54,8 +72,10 @@ def main() -> None:
             time.sleep(1)
         print("\nCapture !")
 
-        screen = pyautogui.screenshot()
-        screen_bgr = cv2.cvtColor(np.array(screen), cv2.COLOR_RGB2BGR)
+        with mss.mss() as sct:
+            monitor = sct.monitors[1] # Primary monitor
+            screen = sct.grab(monitor)
+            screen_bgr = cv2.cvtColor(np.array(screen), cv2.COLOR_BGRA2BGR)
         
         cv2.namedWindow("Selectionne la zone de jeu", cv2.WINDOW_NORMAL)
         cv2.setWindowProperty("Selectionne la zone de jeu", cv2.WND_PROP_TOPMOST, 1)
@@ -70,7 +90,6 @@ def main() -> None:
         with open(CONFIG_FILE, "w") as f:
             json.dump({"x": int(x), "y": int(y), "w": int(w), "h": int(h)}, f)
         logger.info("Zone sauvegardée.")
-    else:
     else:
         logger.info("Chargement de la configuration de zone...")
         with open(CONFIG_FILE, "r") as f:
@@ -94,7 +113,9 @@ def main() -> None:
             print(f"{i}...", end=" ", flush=True)
             time.sleep(1)
             
-        screen_ball_bgr = cv2.cvtColor(np.array(pyautogui.screenshot()), cv2.COLOR_RGB2BGR)
+        with mss.mss() as sct:
+            screen_ball = sct.grab(sct.monitors[1])
+            screen_ball_bgr = cv2.cvtColor(np.array(screen_ball), cv2.COLOR_BGRA2BGR)
         
         cv2.namedWindow("Entourez JUSTE la balle", cv2.WINDOW_NORMAL)
         cv2.setWindowProperty("Entourez JUSTE la balle", cv2.WND_PROP_TOPMOST, 1)
